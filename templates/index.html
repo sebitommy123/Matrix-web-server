@@ -1,0 +1,240 @@
+
+<html>
+  <head>
+    <script src='https://ajax.googleapis.com/ajax/libs/jquery/1.11.3/jquery.min.js'></script>
+  </head>
+  <body>
+    <div class="splitPanel">
+      <div class="left">
+        <h1>Send matrix</h1>
+        <canvas id='drawDisplay'></canvas>
+        <button onclick="sendMatrix()" class="sendButton">Send</button>
+        <div class="settings">
+          <h4>Mode:</h4>
+          <select id="brushType">
+            <option value="add">Add</option>
+            <option value="subtract">Subtract</option>
+          </select>
+          <h4>Brush size:</h4>
+          <input type="range" min="1" max="15" value="3" id="brushSize"/>
+          <h4>Intensity:</h4>
+          <div id="channelIntensities">
+
+          </div>
+        </div>
+      </div>
+      <div class="right">
+        <h1>Received matrices</h1>
+        <canvas id='showDisplay'></canvas>
+      </div>
+    </div>
+    
+  </body>
+  <style>
+    canvas {
+      border: 1px solid black;
+    }
+    body {
+      font-family: Verdana, Geneva, Tahoma, sans-serif;
+    }
+    .splitPanel {
+      display: flex;
+      flex-direction: row;
+      padding: 25px;
+    }
+    .left {
+      flex: 1;
+    }
+    .right {
+      flex: 1;
+    }
+    .sendButton {
+      background-color: wheat;
+      border: none;
+      color: black;
+      padding: 10px;
+      display: block;
+      margin-top: 5px;
+      font-size: 23px;
+      cursor: pointer;
+    }
+  </style>
+  <script>
+    let width = {{width}};
+    let height = {{height}};
+
+    let channels = "{{channels}}".split(",");
+    let cellSize = {{cellSize}};
+    let rgb = {
+      red: "{{red}}",
+      green: "{{green}}",
+      blue: "{{blue}}",
+    };
+
+    let drawDisplay = document.getElementById("drawDisplay");
+    let drawCtx = drawDisplay.getContext("2d");
+    let showDisplay = document.getElementById("showDisplay");
+    let showCtx = showDisplay.getContext("2d");
+
+    let brushSizeElm = document.getElementById("brushSize");
+    let brushTypeElm = document.getElementById("brushType");
+    let channelIntensityElms = [];
+    let channelIntensities = document.getElementById("channelIntensities");
+    channels.forEach(channel => {
+      let elm = document.createElement("DIV");
+      elm.innerHTML = `
+      <p>${channel}:</p>
+      <input type="range" min="1" max="100" value="50" />
+      `;
+      channelIntensityElms.push(elm.children[1]);
+      channelIntensities.appendChild(elm);
+    })
+
+    function computeColor(channelList) {
+      return {
+        red: computeColorComponent(rgb.red, channelList),
+        green: computeColorComponent(rgb.green, channelList),
+        blue: computeColorComponent(rgb.blue, channelList),
+      }
+    }
+    
+    function computeColorComponent(equation, channelList) {
+      channelList.forEach((intensity, i) => {
+        equation = equation.replaceAll(channels[i], intensity);
+      });
+      return eval(equation) * 255;
+    }
+
+    function drawMatrix(ctx, cellSize, matrix) {
+      let screenWidth = cellSize * matrix[0].length;
+      let screenHeight = cellSize * matrix.length;
+
+      ctx.canvas.width = screenWidth;
+      ctx.canvas.height = screenHeight;
+
+      ctx.fillStyle = "black";
+      ctx.fillRect(0, 0, screenWidth, screenHeight);
+
+      matrix.forEach((row, y) => {
+        row.forEach((elm, x) => {
+
+          let color = computeColor(elm);
+
+          ctx.fillStyle = `rgb(${color.red}, ${color.green}, ${color.blue})`;
+          ctx.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
+
+        });
+      })
+    }
+
+    let dynamicMatrix;
+
+    function drawInit() {
+
+      let matrix = [];
+
+      function resetMatrix() {
+        matrix = [];
+        for (let y = 0; y < width; y++) {
+          matrix.push([]);
+          for (let x = 0; x < height; x++) {
+            matrix[y].push(channels.map(() => 0));
+          }
+        }
+        dynamicMatrix = matrix;
+      }
+
+      resetMatrix();
+
+      let mouseX = 0;
+      let mouseY = 0;
+      let mouseDown = false;
+
+      drawDisplay.onmousemove = evt => {
+        mouseX = evt.offsetX;
+        mouseY = evt.offsetY;
+      }
+
+      drawDisplay.onmousedown = evt => {
+
+        mouseDown = true;
+
+      }
+
+      drawDisplay.onmouseup = evt => {
+
+        mouseDown = false;
+
+      }
+
+      function paintOn(x, y) {
+
+        let brushType = brushTypeElm.value;
+        let brushSize = brushSizeElm.value;
+        let intensity = channelIntensityElms.map(elm => parseInt(elm.value));
+
+        matrix.forEach((row, cy) => {
+          row.forEach((elm, cx) => {
+            let dist = Math.sqrt( (cx - x)**2 + (cy - y)**2 );
+            let factor = Math.max(0, brushSize - dist) / brushSize;
+            matrix[cy][cx] = elm.map((v, i) => {
+              if (brushType == "add") {
+                return v + (1 - v) * factor * intensity[i] / 300;
+              } else if (brushType == "subtract") {
+                return v * (1 - factor * intensity[i] / 300);
+              }
+            });
+          });
+        });
+
+      }
+
+      function drawLoop() {
+
+        let screenWidth = cellSize * matrix[0].length;
+        let screenHeight = cellSize * matrix.length;
+
+        drawCtx.canvas.width = screenWidth;
+        drawCtx.canvas.height = screenHeight;
+
+        drawCtx.fillStyle = "black";
+        drawCtx.fillRect(0, 0, screenWidth, screenHeight);
+
+        matrix.forEach((row, y) => {
+          row.forEach((elm, x) => {
+
+            let color = computeColor(elm);
+
+            drawCtx.fillStyle = `rgb(${color.red}, ${color.green}, ${color.blue})`;
+            drawCtx.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
+
+            if (mouseX > x * cellSize && mouseX < x * cellSize + cellSize && mouseY > y * cellSize && mouseY < y * cellSize + cellSize) {
+              if (mouseDown) {
+                paintOn(x, y);
+              }
+            }
+
+          });
+        })
+
+        requestAnimationFrame(drawLoop);
+
+      }
+
+      drawLoop();
+
+    }
+
+    drawInit();
+
+    function sendMatrix() {
+      
+      $.post("./pushMatrix", {
+        matrix: JSON.stringify(dynamicMatrix),
+      }, res => {
+        console.log(res);
+      });
+      
+    }
+  </script>
+</html>
